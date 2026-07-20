@@ -1,0 +1,15 @@
+.gradle/
+build/
+.idea/
+*.iml
+out/
+.kotlin/
+
+# Local secrets & signing material — NEVER commit
+secret.properties
+secrets/
+*.pem
+*.crt
+
+# Project exclude paths
+/.intellijPlatform/
