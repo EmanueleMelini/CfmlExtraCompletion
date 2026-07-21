@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>it.emanuelemelini.cfmlextracompletion</id>
     <name>Cfml Extra Completion</name>
-    <version>0.1.1</version>
+    <version>0.1.2</version>
     <vendor email="emanuele.melini01@gmail.com" url="">Emanuele Melini</vendor>
 
     <description><![CDATA[
@@ -12,20 +12,33 @@
             the built-in CFML completion &mdash; nothing is removed or replaced.
         </p>
 
-        <p><b>What it adds</b></p>
+        <p><b>Where the symbols come from</b></p>
         <ul>
             <li>Variables and functions declared in the nearest <code>Application.cfm</code>, offered in every
                 page under that directory.</li>
-            <li><code>application.*</code> and <code>this.*</code> scope symbols set in the nearest
-                <code>Application.cfc</code> (e.g. from <code>onApplicationStart</code>).</li>
+            <li><code>application.*</code>, <code>session.*</code>, <code>request.*</code> and custom
+                <code>this.*</code> symbols set in the nearest <code>Application.cfc</code> (e.g. from
+                <code>onApplicationStart</code> / <code>onSessionStart</code>).</li>
             <li>Variables and functions from files pulled in via <code>cfinclude</code> / script
                 <code>include</code> in the current file (followed recursively, cycle-safe).</li>
         </ul>
-        <p>
-            It also suppresses the CFML "unresolved reference" warning for exactly these symbols, so the
-            wavy underline disappears for things that really do exist &mdash; while genuinely unknown
-            identifiers stay flagged.
-        </p>
+        <p>They complete unscoped or after the matching scope prefix (<code>application.</code>,
+            <code>session.</code>, <code>request.</code>, <code>this.</code>), shown qualified and
+            highlighted to match the built-in.</p>
+
+        <p><b>And for those same symbols</b></p>
+        <ul>
+            <li><b>Parameter info</b> &mdash; function signatures in completion, plus the argument hint
+                (after <code>(</code> and while typing arguments).</li>
+            <li><b>Documentation</b> &mdash; a function's preceding comment or <code>hint</code>, in the
+                completion doc pane and Quick Documentation (Ctrl+Q).</li>
+            <li><b>Go to Declaration</b> &mdash; Ctrl/Cmd+Click jumps to the declaration, and follows
+                <code>cfinclude</code> paths resolved through a <code>this.mappings</code> alias.</li>
+            <li><b>No false "unresolved" warnings</b> &mdash; the wavy underline is suppressed for symbols we
+                know exist, while genuinely unknown identifiers stay flagged.</li>
+        </ul>
+        <p>Same-file symbols and standard <code>Application.cfc</code> settings are left to the built-in, so
+            nothing is offered twice.</p>
 
         <p><b>Optional features</b> (off by default, under <i>Settings | Other Settings | Cfml Extra Completion</i>)</p>
         <ul>
@@ -51,6 +64,26 @@
         <lang.inspectionSuppressor
                 language="CFML"
                 implementationClass="it.emanuelemelini.cfmlextracompletion.CfmlReferenceInspectionSuppressor"/>
+
+        <!-- Parameter-info hint for our functions (the built-in can't resolve them). order=first so we
+             claim our functions before the bundled handler, which would otherwise show nothing for them. -->
+        <codeInsight.parameterInfo
+                language="CFML"
+                order="first"
+                implementationClass="it.emanuelemelini.cfmlextracompletion.CfmlFunctionParameterInfoHandler"/>
+        <!-- Auto-open the parameter-info popup when "(" / "," is typed in CFML. -->
+        <typedHandler
+                order="first"
+                implementation="it.emanuelemelini.cfmlextracompletion.CfmlParameterInfoTypedHandler"/>
+
+        <!-- Documentation (comment/hint + signature) for our functions, in completion and Quick Doc. -->
+        <lang.documentationProvider
+                language="CFML"
+                implementationClass="it.emanuelemelini.cfmlextracompletion.CfmlDocumentationProvider"/>
+
+        <!-- Ctrl/Cmd+Click / Go To Declaration for our variables and functions. -->
+        <gotoDeclarationHandler
+                implementation="it.emanuelemelini.cfmlextracompletion.CfmlGotoDeclarationHandler"/>
 
         <!-- No groupId => the page appears under Settings > Other Settings. -->
         <applicationConfigurable

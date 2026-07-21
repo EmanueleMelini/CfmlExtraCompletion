@@ -25,17 +25,24 @@ import it.emanuelemelini.cfmlextracompletion.settings.CfmlExtraSettings
 object CfmlProjectSymbols {
 
     /** Symbols grouped by the prefix under which they are valid. Each is a label-bearing [Symbol]. */
+    /** Where a symbol is declared, for go-to-declaration navigation. */
+    class Declaration(val file: VirtualFile, val offset: Int)
+
     class Aggregate(
         val unscoped: List<Symbol>,
         val application: List<Symbol>,
         val thisScope: List<Symbol>,
+        val session: List<Symbol> = emptyList(),
+        val request: List<Symbol> = emptyList(),
         /** ColdFusion mappings resolved from Application.cfc (empty unless the option is enabled). */
         val mappings: Map<String, VirtualFile> = emptyMap(),
+        /** Declaration site by lowercased symbol name (nearest declaration wins on conflicts). */
+        val declarations: Map<String, Declaration> = emptyMap(),
     ) {
         /** Every symbol name across all buckets — used for cheap "does this identifier exist" checks. */
         val allNames: Set<String> =
-            (unscoped.asSequence() + application.asSequence() + thisScope.asSequence())
-                .map { it.name }.toSet()
+            sequenceOf(unscoped, application, thisScope, session, request)
+                .flatMap { it.asSequence() }.map { it.name }.toSet()
 
         companion object {
             val EMPTY = Aggregate(emptyList(), emptyList(), emptyList())
@@ -76,45 +83,65 @@ object CfmlProjectSymbols {
         val unscoped = LinkedHashMap<String, Symbol>()
         val application = LinkedHashMap<String, Symbol>()
         val thisScope = LinkedHashMap<String, Symbol>()
+        val session = LinkedHashMap<String, Symbol>()
+        val request = LinkedHashMap<String, Symbol>()
+        val declarations = LinkedHashMap<String, Declaration>()
 
-        fun addUnscoped(symbols: List<Symbol>, label: String) {
-            for (s in symbols) if (s.scope == SymbolScope.UNSCOPED) {
-                unscoped.putIfAbsent(s.name, s.copy(sourceLabel = label))
+        // Routes each extracted symbol into the bucket for the prefix it completes under. `keepThis` is
+        // only relevant for components; page/include files use application.*/session.*/request.*/unscoped.
+        // Also records the declaration site (nearest wins) for go-to-declaration.
+        fun ingest(symbols: List<Symbol>, source: VirtualFile, label: String, keepThis: Boolean) {
+            for (s in symbols) {
+                val kept = when (s.scope) {
+                    SymbolScope.UNSCOPED -> unscoped.putIfAbsent(s.name, s.copy(sourceLabel = label)) == null
+                    SymbolScope.APPLICATION -> application.putIfAbsent(s.name, s.copy(sourceLabel = label)) == null
+                    SymbolScope.SESSION -> session.putIfAbsent(s.name, s.copy(sourceLabel = label)) == null
+                    SymbolScope.REQUEST -> request.putIfAbsent(s.name, s.copy(sourceLabel = label)) == null
+                    SymbolScope.THIS -> keepThis && thisScope.putIfAbsent(s.name, s.copy(sourceLabel = label)) == null
+                }
+                if (kept && s.declarationOffset >= 0) {
+                    declarations.putIfAbsent(s.name.lowercase(), Declaration(source, s.declarationOffset))
+                }
             }
         }
 
         val appFiles = ApplicationFileLocator.locate(project, vfile, settings.mergeAncestorApplicationFiles)
 
-        // Application.cfm page symbols (nearest first; nearest wins on name conflicts).
+        // Application.cfm — page (unscoped) symbols AND application.* variables set the classic way,
+        // e.g. <cfset application.test = 1>. Nearest first; nearest wins on name conflicts. The current
+        // file is skipped everywhere: the built-in completion already handles same-file symbols, and adding
+        // them again would produce duplicate entries (e.g. when editing Application.cfm/.cfc itself).
         for (cfm in appFiles.cfms) {
-            psiManager.findFile(cfm)?.let { addUnscoped(perFile(it), "Application.cfm") }
+            if (cfm == vfile) continue
+            psiManager.findFile(cfm)?.let { ingest(perFile(it), cfm, "Application.cfm", keepThis = false) }
         }
 
-        // Application.cfc application-/this-scope symbols, and mappings for include resolution.
+        // Application.cfc — application.* / this.* scope symbols, and mappings for include resolution.
         val mappings = LinkedHashMap<String, VirtualFile>()
         val contentRoot = ProjectRootManager.getInstance(project).fileIndex.getContentRootForFile(vfile)
         for (cfcVf in appFiles.cfcs) {
             val cfc = psiManager.findFile(cfcVf) ?: continue
-            for (s in perFile(cfc)) when (s.scope) {
-                SymbolScope.APPLICATION -> application.putIfAbsent(s.name, s.copy(sourceLabel = "Application.cfc"))
-                SymbolScope.THIS -> thisScope.putIfAbsent(s.name, s.copy(sourceLabel = "Application.cfc (this)"))
-                else -> {}
-            }
+            if (cfcVf != vfile) ingest(perFile(cfc), cfcVf, "Application.cfc", keepThis = true)
             if (settings.resolveCfcMappings) {
                 CfMappingResolver.parse(cfc.text, cfcVf.parent, contentRoot)
                     .forEach { (alias, dir) -> mappings.putIfAbsent(alias, dir) }
             }
         }
 
+        // Included files — their unscoped symbols and any application.* they set.
         val included = IncludeGraphResolver.collectIncludedFiles(project, vfile, mappings) {
             psiManager.findFile(it)?.text
         }
         for (inc in included) {
+            if (inc == vfile) continue
             val psi = psiManager.findFile(inc) ?: continue
-            addUnscoped(perFile(psi), "cfinclude: ${inc.name}")
+            ingest(perFile(psi), inc, "cfinclude: ${inc.name}", keepThis = false)
         }
 
-        return Aggregate(unscoped.values.toList(), application.values.toList(), thisScope.values.toList(), mappings)
+        return Aggregate(
+            unscoped.values.toList(), application.values.toList(), thisScope.values.toList(),
+            session.values.toList(), request.values.toList(), mappings, declarations,
+        )
     }
 
     /** Per-file regex extraction, cached and invalidated when that file changes. */

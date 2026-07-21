@@ -11,6 +11,17 @@
     <h1>#appTitle#</h1>
     <p>#headerVar#</p>
     <p>#footerVar#</p>
+    #formatMoney()#
+    #formatBaseN()#
+    #testFunc()#
+    #session.user#
+    #request.aaaa#
 </cfoutput>
 
 <cfset x = f>
+
+<cffunction name="testFunc2" returntype="void">
+    
+</cffunction>
+
+<cfset testFunc2()>

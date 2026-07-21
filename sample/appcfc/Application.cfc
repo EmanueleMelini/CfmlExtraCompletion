@@ -1,6 +1,7 @@
 <cfcomponent>
     <cfset this.name = "SampleAppCfc">
     <cfset this.sessionManagement = true>
+    <cfset this.test = 2>
 
     <cffunction name="onApplicationStart" returntype="boolean">
         <cfscript>

@@ -1,11 +1,14 @@
 package it.emanuelemelini.cfmlextracompletion
 
+import com.intellij.codeInsight.AutoPopupController
 import com.intellij.codeInsight.completion.CompletionContributor
 import com.intellij.codeInsight.completion.CompletionParameters
 import com.intellij.codeInsight.completion.CompletionProvider
 import com.intellij.codeInsight.completion.CompletionResultSet
 import com.intellij.codeInsight.completion.CompletionType
+import com.intellij.codeInsight.completion.InsertHandler
 import com.intellij.codeInsight.completion.util.ParenthesesInsertHandler
+import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
 import com.intellij.icons.AllIcons
 import com.intellij.patterns.PlatformPatterns
@@ -35,59 +38,99 @@ class CfmlExtraCompletionContributor : CompletionContributor() {
             originalFile.virtualFile ?: return
             val editor = parameters.editor
 
-            val typed = readTypedContext(editor.document.immutableCharSequence, editor.caretModel.offset)
+            // The whole reference being typed, e.g. "application.te", "variables.x", or just "app".
+            val ref = referencePrefix(editor.document.immutableCharSequence, editor.caretModel.offset)
             val aggregate = CfmlProjectSymbols.of(originalFile)
-            val symbols = when (typed.scopeWord) {
-                null, "", "variables" -> aggregate.unscoped
-                "application" -> aggregate.application
-                "this" -> aggregate.thisScope
-                else -> return // some other CFML scope (session, request, url, ...) — leave to built-in
-            }
-            if (symbols.isEmpty()) return
 
-            val rs = result.withPrefixMatcher(typed.partial)
+            // Scope qualifier = the token before the first dot, if any.
+            val dot = ref.indexOf('.')
+            val scope = if (dot >= 0) ref.substring(0, dot).lowercase() else null
+
+            // Match against the full reference (including "application.") so the typed portion is
+            // prefix-highlighted and items surface while typing the scope name — like the built-in.
+            val rs = result.withPrefixMatcher(ref)
             val emitted = HashSet<String>()
-            for (s in symbols) {
-                if (emitted.add(s.name)) rs.addElement(buildLookup(s))
+
+            fun emit(symbols: List<Symbol>, qualifier: String?) {
+                for (s in symbols) {
+                    val lookup = if (qualifier != null) "$qualifier.${s.name}" else s.name
+                    if (emitted.add(lookup)) rs.addElement(buildLookup(s, lookup))
+                }
+            }
+
+            when (scope) {
+                // No dot yet: offer unscoped names bare, and the scope-qualified names so they appear while
+                // typing the scope word (each matched against whatever has been typed).
+                null -> {
+                    emit(aggregate.unscoped, null)
+                    emit(aggregate.application, "application")
+                    emit(aggregate.session, "session")
+                    emit(aggregate.request, "request")
+                }
+                "variables" -> emit(aggregate.unscoped, "variables")
+                "application" -> emit(aggregate.application, "application")
+                "session" -> emit(aggregate.session, "session")
+                "request" -> emit(aggregate.request, "request")
+                // Skip the standard Application.cfc this.* settings — the built-in already completes those,
+                // so contributing them again would double the entry. Custom this.* properties still show.
+                "this" -> emit(aggregate.thisScope.filter { it.name.lowercase() !in STANDARD_THIS_SETTINGS }, "this")
+                else -> return // some other CFML scope (server, url, form, cgi, ...) — leave to built-in
             }
         }
 
-        private fun buildLookup(symbol: Symbol) =
+        // The lookup string IS the qualified form ("application.foo"), so the platform highlights the typed
+        // portion (including the scope) and insertion replaces the whole reference — matching the built-in.
+        // The symbol is the lookup object, so the documentation provider can render its doc/signature.
+        private fun buildLookup(symbol: Symbol, lookupString: String): LookupElementBuilder =
             when (symbol.kind) {
                 SymbolKind.FUNCTION ->
-                    LookupElementBuilder.create(symbol.name)
+                    LookupElementBuilder.create(symbol, lookupString)
                         .withIcon(AllIcons.Nodes.Method)
-                        .withTypeText(symbol.sourceLabel, true)
-                        .withInsertHandler(ParenthesesInsertHandler.WITH_PARAMETERS)
+                        .withTailText("(" + symbol.params.joinToString(", ") { it.render() } + ")", true)
+                        .withTypeText(symbol.returnType ?: symbol.sourceLabel, true)
+                        .withInsertHandler(if (symbol.params.isEmpty()) NO_PARAM_INSERT else PARAM_INSERT)
                 SymbolKind.VARIABLE ->
-                    LookupElementBuilder.create(symbol.name)
+                    LookupElementBuilder.create(symbol, lookupString)
                         .withIcon(AllIcons.Nodes.Variable)
                         .withTypeText(symbol.sourceLabel, true)
             }
     }
 
-    private data class TypedContext(val scopeWord: String?, val partial: String)
-
     companion object {
+        /** No-arg function: insert "()", caret after. */
+        private val NO_PARAM_INSERT = ParenthesesInsertHandler.NO_PARAMETERS
+
+        /** Function with args: insert "()", caret inside, then pop up parameter info. */
+        private val PARAM_INSERT = InsertHandler<LookupElement> { context, item ->
+            ParenthesesInsertHandler.WITH_PARAMETERS.handleInsert(context, item)
+            AutoPopupController.getInstance(context.project).autoPopupParameterInfo(context.editor, null)
+        }
+
+        /**
+         * Standard Application.cfc `this`-scope settings that the bundled CFML plugin already completes.
+         * We skip these so they aren't offered twice; custom this.* properties are unaffected. All lowercase.
+         */
+        private val STANDARD_THIS_SETTINGS = setOf(
+            "name", "applicationtimeout", "sessionmanagement", "sessiontimeout", "setclientcookies",
+            "setdomaincookies", "clientmanagement", "clientstorage", "loginstorage", "scriptprotect",
+            "securejson", "securejsonprefix", "serialization", "invokeimplicitaccessor", "datasource",
+            "datasources", "defaultdatasource", "ormenabled", "ormsettings", "mappings", "customtagpaths",
+            "welcomefilelist", "timezone", "localmode", "sessioncookie", "authcookie", "applicationtoken",
+            "javasettings", "s3", "enablerobustexception", "triggerdatamember",
+            "searchimplicitscopes", "passarraybyreference", "wssettings", "cgireadonly", "componentpaths",
+        )
+
         private fun isIdent(c: Char) = c.isLetterOrDigit() || c == '_'
 
-        /** Reads the identifier being typed and the scope qualifier before it (e.g. "application" in "application.ds"). */
-        private fun readTypedContext(chars: CharSequence, caret: Int): TypedContext {
+        /** Reads the full reference being typed up to the caret, e.g. "application.te" or "app".
+         * @return String */
+        private fun referencePrefix(chars: CharSequence, caret: Int): String {
             var i = caret
-            while (i > 0 && isIdent(chars[i - 1])) i--
-            val partial = chars.subSequence(i, caret).toString()
-
-            var p = i
-            while (p > 0 && chars[p - 1].isWhitespace()) p--
-            if (p > 0 && chars[p - 1] == '.') {
-                var d = p - 1
-                while (d > 0 && chars[d - 1].isWhitespace()) d--
-                var s = d
-                while (s > 0 && isIdent(chars[s - 1])) s--
-                val word = chars.subSequence(s, d).toString()
-                if (word.isNotEmpty()) return TypedContext(word.lowercase(), partial)
+            while (i > 0) {
+                val c = chars[i - 1]
+                if (isIdent(c) || c == '.') i-- else break
             }
-            return TypedContext(null, partial)
+            return chars.subSequence(i, caret).toString()
         }
     }
 }

@@ -5,16 +5,32 @@ project-wide symbols the built-in completion misses — without replacing anythi
 
 ## What it adds
 
-| Source | Symbols offered | Where they complete |
-| --- | --- | --- |
-| Nearest `Application.cfm` (walking up the dir tree) | `cfset` / `cfparam` variables and `cffunction` / script `function` definitions | unscoped and after `variables.` in any page under that directory |
-| Nearest `Application.cfc` | `application.*` set in `onApplicationStart` etc., and `this.*` settings | after `application.` / `this.` |
-| `cfinclude` / script `include` graph of the current file (recursive, cycle-safe) | variables and functions from each included file | unscoped and after `variables.` in the current file |
+Completion is pulled from these project-wide sources (on top of the built-in, which only sees the current
+file):
 
-It also **suppresses the CFML "unresolved reference" warning** (the wavy underline) for those same
-symbols, so variables that really do exist project-wide are no longer flagged. Genuinely unknown
-identifiers are still underlined as normal — this is done via a scoped `InspectionSuppressor` for the
-`CfmlReferenceInspection`, not by disabling the inspection.
+| Source | Symbols |
+| --- | --- |
+| Nearest `Application.cfm` (walking up the dir tree) | unscoped `cfset`/`cfparam` vars & `cffunction`/script functions, plus `application.*` / `session.*` / `request.*` assignments |
+| Nearest `Application.cfc` | `application.*`, `session.*`, `request.*` (set in lifecycle methods) and custom `this.*` settings |
+| `cfinclude` / script `include` graph (recursive, cycle-safe) | everything above, from each included file |
+
+They complete unscoped (and after `variables.`) or after the matching scope prefix — `application.`,
+`session.`, `request.`, `this.` — shown **qualified and prefix-highlighted** to match the built-in, and
+surfaced while you type the scope name (before the dot).
+
+Beyond completion, for these same symbols:
+
+- **Parameter info** — function signatures in the completion popup, plus the argument hint (auto after `(`
+  and while typing arguments).
+- **Documentation** — a function's preceding comment (`<!--- --->` / JS-doc) or `hint`, shown in the
+  completion doc pane and via Quick Documentation (Ctrl+Q).
+- **Go to Declaration** — Ctrl/Cmd+Click jumps to the declaration; also follows `cfinclude` paths that
+  resolve through a `this.mappings` alias.
+- **No false "unresolved" warnings** — the wavy underline is suppressed for symbols we know exist (a scoped
+  `InspectionSuppressor`, not disabling the inspection); genuinely unknown identifiers stay flagged.
+
+Same-file symbols and standard `Application.cfc` `this.*` settings are left to the built-in, so nothing is
+offered twice.
 
 ## Requirements
 
@@ -24,7 +40,7 @@ identifiers are still underlined as normal — this is done via a scoped `Inspec
 ## Build
 
 ```bash
-./gradlew buildPlugin      # -> build/distributions/cfmlextracompletion-0.1.1.zip
+./gradlew buildPlugin      # -> build/distributions/cfmlextracompletion-0.1.2.zip
 ./gradlew test             # runs the symbol-extractor unit tests
 ./gradlew verifyPlugin     # checks API compatibility against 2026.2
 ```
@@ -33,7 +49,7 @@ identifiers are still underlined as normal — this is done via a scoped `Inspec
 
 1. Build the ZIP (above).
 2. In IntelliJ: **Settings ▸ Plugins ▸ ⚙ ▸ Install Plugin from Disk…** and pick
-   `build/distributions/cfmlextracompletion-0.1.1.zip`.
+   `build/distributions/cfmlextracompletion-0.1.2.zip`.
 3. Restart the IDE.
 
 ## Try it
@@ -71,3 +87,31 @@ default). Toggling them takes effect immediately — no restart:
   resolved only when the option above is enabled, and only for statically-evaluable values.
 - Templates with interpolated expressions (`#...#`) in the path are skipped.
 - Extraction is text/regex based on purpose, to avoid coupling to the CFML plugin's internal PSI classes.
+- At a function's *own* declaration, Quick Doc shows the built-in `<cffunction>` tag help rather than the
+  function's own doc — a built-in behavior we don't override. Docs work everywhere the function is used.
+
+## Changelog
+
+### 0.1.2
+- **Ctrl/Cmd+Click (Go To Declaration)** on contributed variables and functions jumps to their
+  declaration in `Application.cfm` / `Application.cfc` / an included file. Also navigates `cfinclude`
+  paths that resolve through a `this.mappings` alias.
+- **`session.*` and `request.*`** variables (set in `Application.cfm`/`.cfc`/included files) now complete
+  like `application.*`.
+- Contributed functions now show their parameter signature in completion (e.g.
+  `formatMoney(amount : numeric, [symbol : string])`) and provide a parameter-info hint (Ctrl+P, and
+  automatically while typing arguments) — matching how the built-in CFML functions behave.
+- Function documentation — a preceding comment (`<!--- --->` or a JS-doc block) or the `hint` attribute —
+  is shown in the completion doc pane and via Quick Documentation (Ctrl+Q) on the function name. (This goes
+  beyond the built-in CFML completion, which shows no docs for these functions.)
+- `application.*` variables assigned directly in `Application.cfm` (e.g. `<cfset application.test = 1>`) now
+  appear in `application.` completion.
+- Scope members now match the built-in completion look: shown qualified (`application.name`), with the
+  typed text prefix-highlighted, and surfaced while typing the scope name (before the dot is typed).
+- No more duplicate entries: symbols the built-in already completes (same-file symbols, standard
+  `Application.cfc` settings) are no longer offered a second time.
+
+### 0.1.1
+- Initial release: project-wide completion from the nearest `Application.cfm`, `Application.cfc`
+  (`application.` / `this.` scope), and the `cfinclude` graph; suppression of the CFML unresolved-reference
+  warning for these symbols; opt-in `this.mappings` resolution and ancestor-Application merge.

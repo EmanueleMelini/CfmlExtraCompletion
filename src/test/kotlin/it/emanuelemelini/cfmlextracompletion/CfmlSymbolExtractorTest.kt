@@ -13,6 +13,133 @@ class CfmlSymbolExtractorTest {
     private fun names(text: String, kind: SymbolKind, scope: SymbolScope) =
         extract(text).filter { it.kind == kind && it.scope == scope }.map { it.name }.toSet()
 
+    private fun function(text: String, name: String) =
+        extract(text).first { it.kind == SymbolKind.FUNCTION && it.name == name }
+
+    private fun function0rVar(text: String, name: String) =
+        extract(text).first { it.name == name }
+
+    @Test
+    fun `tag function parameters and return type are captured`() {
+        val src = """
+            <cffunction name="formatMoney" returntype="string">
+                <cfargument name="amount" type="numeric" required="true">
+                <cfargument name="symbol" type="string">
+                <cfreturn "">
+            </cffunction>
+        """.trimIndent()
+
+        val fn = function(src, "formatMoney")
+        assertEquals("string", fn.returnType)
+        assertEquals(listOf("amount", "symbol"), fn.params.map { it.name })
+        assertEquals(listOf("numeric", "string"), fn.params.map { it.type })
+        assertEquals(listOf(false, true), fn.params.map { it.optional }) // required=true -> not optional
+        assertEquals("amount : numeric", fn.params[0].render())
+        assertEquals("[symbol : string]", fn.params[1].render())
+    }
+
+    @Test
+    fun `script function parameters and return type are captured`() {
+        val src = """
+            <cfscript>
+                public numeric function add(required numeric a, numeric b = 0) {
+                    return a + b;
+                }
+            </cfscript>
+        """.trimIndent()
+
+        val fn = function(src, "add")
+        assertEquals("numeric", fn.returnType)
+        assertEquals(listOf("a", "b"), fn.params.map { it.name })
+        assertEquals(listOf("numeric", "numeric"), fn.params.map { it.type })
+        assertEquals(listOf(false, true), fn.params.map { it.optional })
+    }
+
+    @Test
+    fun `function with no parameters yields empty params`() {
+        val src = """<cffunction name="ping" returntype="boolean"><cfreturn true></cffunction>"""
+        assertTrue(function(src, "ping").params.isEmpty())
+    }
+
+    @Test
+    fun `tag function doc comes from preceding CFML comment`() {
+        val src = """
+            <!--- Formats a number as money. --->
+            <cffunction name="formatMoney" returntype="string">
+                <cfargument name="amount" type="numeric" required="true">
+            </cffunction>
+        """.trimIndent()
+        assertEquals("Formats a number as money.", function(src, "formatMoney").doc)
+    }
+
+    @Test
+    fun `tag function doc falls back to hint attribute`() {
+        val src = """<cffunction name="ping" hint="Health check" returntype="boolean"><cfreturn true></cffunction>"""
+        assertEquals("Health check", function(src, "ping").doc)
+    }
+
+    @Test
+    fun `script function doc comes from preceding javadoc comment`() {
+        val src = """
+            <cfscript>
+            /** Adds two numbers. */
+            numeric function add(numeric a, numeric b) { return a + b; }
+            </cfscript>
+        """.trimIndent()
+        assertEquals("Adds two numbers.", function(src, "add").doc)
+    }
+
+    @Test
+    fun `function without doc has null doc`() {
+        val src = """<cffunction name="bare"><cfreturn 1></cffunction>"""
+        assertEquals(null, function(src, "bare").doc)
+    }
+
+    @Test
+    fun `doc is not taken from a non-adjacent earlier comment`() {
+        val src = """
+            <!--- File header, not this function's doc. --->
+            <cfset x = 1>
+            <cffunction name="noDoc"><cfreturn 1></cffunction>
+        """.trimIndent()
+        assertEquals(null, function(src, "noDoc").doc)
+    }
+
+    @Test
+    fun `doc does not swallow content across earlier comments`() {
+        val src = """
+            <!--- File header. --->
+            <cfset x = 1>
+            <!--- Real doc. --->
+            <cffunction name="f"><cfreturn 1></cffunction>
+        """.trimIndent()
+        assertEquals("Real doc.", function(src, "f").doc)
+    }
+
+    @Test
+    fun `declaration offset points at the name in the original text`() {
+        val src = """<cfset appTitle = "x">"""
+        assertEquals(src.indexOf("appTitle"), function0rVar(src, "appTitle").declarationOffset)
+    }
+
+    @Test
+    fun `declaration offset survives a preceding comment (length-preserving strip)`() {
+        val src = "<!--- header comment --->\n<cfset foo = 1>"
+        assertEquals(src.indexOf("foo"), function0rVar(src, "foo").declarationOffset)
+    }
+
+    @Test
+    fun `required attribute accepts yes and 1 as true`() {
+        val src = """
+            <cffunction name="f">
+                <cfargument name="a" type="numeric" required="yes">
+                <cfargument name="b" type="string" required="1">
+                <cfargument name="c" type="string">
+            </cffunction>
+        """.trimIndent()
+        assertEquals(listOf(false, false, true), function(src, "f").params.map { it.optional })
+    }
+
     @Test
     fun `tag-style unscoped vars and functions`() {
         val src = """
@@ -73,14 +200,18 @@ class CfmlSymbolExtractorTest {
     }
 
     @Test
-    fun `out-of-scope scopes are dropped`() {
+    fun `session and request scopes are captured, other scopes dropped`() {
         val src = """
             <cfset session.userId = 1>
             <cfset request.token = "t">
             <cfset url.page = 2>
+            <cfset form.q = "x">
         """.trimIndent()
 
-        assertTrue(extract(src).isEmpty(), "session/request/url must not be offered")
+        assertEquals(setOf("userId"), names(src, SymbolKind.VARIABLE, SymbolScope.SESSION))
+        assertEquals(setOf("token"), names(src, SymbolKind.VARIABLE, SymbolScope.REQUEST))
+        // url / form / cgi etc. remain out of scope.
+        assertTrue(extract(src).none { it.name == "page" || it.name == "q" }, "url/form must not be offered")
     }
 
     @Test
