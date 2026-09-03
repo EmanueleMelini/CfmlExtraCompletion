@@ -13,3 +13,4 @@ secrets/
 
 # Project exclude paths
 /.intellijPlatform/
+/sample/imgs
