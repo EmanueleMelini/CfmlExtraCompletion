@@ -1,0 +1,8 @@
+<!-- Loaded only when the optional Database Tools plugin is present.
+     The DB API we use lives in the `intellij.database` CONTENT MODULE; declaring it here makes those
+     classes visible to us when Database Tools is installed, while keeping the whole thing optional. -->
+<idea-plugin>
+    <dependencies>
+        <module name="intellij.database"/>
+    </dependencies>
+</idea-plugin>

@@ -23,7 +23,8 @@ class CfmlReferenceInspectionSuppressor : InspectionSuppressor {
         if (!CfmlProjectSymbols.isCfmlFile(file)) return false
 
         return when {
-            toolId.equals(CFML_REFERENCE_INSPECTION, ignoreCase = true) -> isKnownVariable(element, file)
+            toolId.equals(CFML_REFERENCE_INSPECTION, ignoreCase = true) ->
+                isKnownVariable(element, file) || isQueryColumn(element, file)
             toolId.equals(CFML_FILE_REFERENCE_INSPECTION, ignoreCase = true) -> isResolvableTemplate(element, file)
             else -> false
         }
@@ -37,6 +38,19 @@ class CfmlReferenceInspectionSuppressor : InspectionSuppressor {
         if (known.isEmpty()) return false
         val name = trailingIdentifier(element.text) ?: return false
         return name in known
+    }
+
+    /** A column of the query the element sits inside (cfoutput/cfloop query="q"). */
+    private fun isQueryColumn(element: PsiElement, file: PsiFile): Boolean {
+        val name = trailingIdentifier(element.text) ?: return false
+        // Full document text (not the CFML view) so the SQL-injected cfquery SELECT list is visible.
+        val documentText = file.viewProvider.document?.immutableCharSequence ?: file.text
+        val offset = element.textRange.startOffset
+        // Either "queryName.column" (valid anywhere) or a bare column inside that query's loop.
+        val query = CfmlQueryResolver.qualifiedQueryAt(file.project, documentText, offset)
+            ?: CfmlQueryResolver.activeQuery(file.project, documentText, offset)
+            ?: return false
+        return query.columns.any { it.name.equals(name, ignoreCase = true) }
     }
 
     private fun isResolvableTemplate(element: PsiElement, file: PsiFile): Boolean {

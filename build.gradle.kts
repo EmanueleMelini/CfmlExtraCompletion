@@ -8,8 +8,13 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.18.1"
 }
 
-group = providers.gradleProperty("pluginGroup").get()
-version = providers.gradleProperty("pluginVersion").get()
+// Dev build: `-PdevBuild=true` produces a separate plugin (distinct id, name, and zip) so it can be
+// installed alongside the published one and toggled on/off in Settings > Plugins without uninstalling.
+// Keep only ONE of the two enabled at a time — both enabled would double every contribution.
+val devBuild = (providers.gradleProperty("devBuild").orNull ?: "false").toBoolean()
+version = providers.gradleProperty(if (devBuild) "pluginVersionDev" else "pluginVersion").get()
+
+group = providers.gradleProperty(if (devBuild) "pluginGroupDev" else "pluginGroup").get()
 
 // Secrets for signing/publishing. Loaded from a gitignored `secret.properties` at the project root,
 // with a fallback to environment variables. Never commit real values — see secret.properties.example.
@@ -40,6 +45,9 @@ dependencies {
         )
         // CFML plugin (Marketplace id "CFML Support") — provides the CFML language + PSI we build on.
         plugin("CFML Support", providers.gradleProperty("cfmlPluginVersion").get())
+        // NOTE: Database Tools is intentionally NOT a compile/test dependency — it drags the Java plugin
+        // into the test sandbox and destabilizes platform tests. SELECT * expansion accesses its API via
+        // reflection (see CfmlDbSchema), gated by the optional <depends> in plugin.xml.
 
         pluginVerifier()
         zipSigner()
@@ -62,7 +70,9 @@ tasks.test {
 
 intellijPlatform {
     pluginConfiguration {
-        version = providers.gradleProperty("pluginVersion")
+        id = if (devBuild) "it.emanuelemelini.cfmlextracompletion.dev" else "it.emanuelemelini.cfmlextracompletion"
+        name = if (devBuild) "Cfml Extra Completion (DEV)" else "Cfml Extra Completion"
+        version = project.version.toString()
         changeNotes = providers.gradleProperty("pluginChangeNotes").orElse("Initial release.")
         ideaVersion {
             sinceBuild = providers.gradleProperty("pluginSinceBuild")
@@ -90,7 +100,10 @@ intellijPlatform {
 
     pluginVerification {
         ides {
+            // Compile against the OLDEST supported build (platformVersion) but verify across the whole
+            // supported range, including the newest 2026.2.x users actually run.
             create(IntelliJPlatformType.IntellijIdea, providers.gradleProperty("platformVersion").get())
+            create(IntelliJPlatformType.IntellijIdea, providers.gradleProperty("platformVersionLatest").get())
         }
     }
 }

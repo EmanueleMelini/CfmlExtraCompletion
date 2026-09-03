@@ -15,6 +15,7 @@ import com.intellij.patterns.PlatformPatterns
 import com.intellij.util.ProcessingContext
 import it.emanuelemelini.cfmlextracompletion.model.Symbol
 import it.emanuelemelini.cfmlextracompletion.model.SymbolKind
+import it.emanuelemelini.cfmlextracompletion.model.SymbolScope
 
 /**
  * Adds project-wide CFML completions the bundled plugin doesn't: Application.cfm page symbols,
@@ -38,13 +39,37 @@ class CfmlExtraCompletionContributor : CompletionContributor() {
             originalFile.virtualFile ?: return
             val editor = parameters.editor
 
+            // Full document text — NOT originalFile.text: a .cfm is a multi-language view and a cfquery body
+            // is SQL-injected, so the CFML view's text can omit the SELECT list we parse for columns.
+            val docText = editor.document.immutableCharSequence
+            val caret = editor.caretModel.offset
+
             // The whole reference being typed, e.g. "application.te", "variables.x", or just "app".
-            val ref = referencePrefix(editor.document.immutableCharSequence, editor.caretModel.offset)
+            val ref = referencePrefix(docText, caret)
+
+            // Completing a query name inside cfoutput/cfloop query="…".
+            if (CfmlQueryScopes.inQueryAttribute(docText, caret)) {
+                val rs = result.withPrefixMatcher(ref)
+                for (name in CfmlQueryScopes.queryNames(docText.toString())) {
+                    rs.addElement(
+                        LookupElementBuilder.create(name).withIcon(AllIcons.Nodes.DataTables).withTypeText("query", true),
+                    )
+                }
+                return
+            }
+
             val aggregate = CfmlProjectSymbols.of(originalFile)
 
             // Scope qualifier = the token before the first dot, if any.
             val dot = ref.indexOf('.')
             val scope = if (dot >= 0) ref.substring(0, dot).lowercase() else null
+
+            // Column symbols for the query the caret is looping over (cfoutput/cfloop query="q"), if any.
+            // Columns include SELECT * expansion from an attached data source when available.
+            val query = CfmlQueryResolver.activeQuery(originalFile.project, docText, caret)
+            val queryColumns = query?.columns.orEmpty().map {
+                Symbol(it.name, SymbolKind.VARIABLE, SymbolScope.UNSCOPED, "query: ${query!!.name}")
+            }
 
             // Match against the full reference (including "application.") so the typed portion is
             // prefix-highlighted and items surface while typing the scope name — like the built-in.
@@ -58,6 +83,19 @@ class CfmlExtraCompletionContributor : CompletionContributor() {
                 }
             }
 
+            // Query columns qualified by the query name: q.<column>. Resolved by NAME, so this also works
+            // outside a cfoutput/cfloop block — ColdFusion allows q.col anywhere to read the first row.
+            if (scope != null) {
+                val named = CfmlQueryResolver.queryByName(originalFile.project, docText, scope)
+                if (named != null) {
+                    emit(
+                        named.columns.map { Symbol(it.name, SymbolKind.VARIABLE, SymbolScope.UNSCOPED, "query: ${named.name}") },
+                        ref.substring(0, dot), // keep what the user actually typed as the qualifier
+                    )
+                    return
+                }
+            }
+
             when (scope) {
                 // No dot yet: offer unscoped names bare, and the scope-qualified names so they appear while
                 // typing the scope word (each matched against whatever has been typed).
@@ -66,6 +104,7 @@ class CfmlExtraCompletionContributor : CompletionContributor() {
                     emit(aggregate.application, "application")
                     emit(aggregate.session, "session")
                     emit(aggregate.request, "request")
+                    emit(queryColumns, null) // inside a cfoutput/cfloop query block, columns are unqualified
                 }
                 "variables" -> emit(aggregate.unscoped, "variables")
                 "application" -> emit(aggregate.application, "application")

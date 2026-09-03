@@ -1,7 +1,7 @@
 <idea-plugin>
-    <id>it.emanuelemelini.cfmlextracompletion</id>
-    <name>Cfml Extra Completion</name>
-    <version>0.1.2</version>
+    <!-- id, name and version are injected by the Gradle build (see pluginConfiguration in build.gradle.kts),
+         which also swaps in a distinct id/name for -PdevBuild=true so a test build can be installed
+         alongside the published plugin. -->
     <vendor email="emanuele.melini01@gmail.com" url="">Emanuele Melini</vendor>
 
     <description><![CDATA[
@@ -55,10 +55,16 @@
     <!-- Requires the CFML plugin (Marketplace id "CFML Support") for the CFML language + PSI. -->
     <depends>com.intellij.modules.platform</depends>
     <depends>CFML Support</depends>
+    <!-- Optional: Database Tools, for expanding SELECT * to a table's columns from an attached data source.
+         The plugin works without it (that feature just no-ops). -->
+    <depends optional="true" config-file="cfml-database.xml">com.intellij.database</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <!-- order=first so our items are added before the bundled CFML completion, which inside
+             a cfoutput query block can stop the contributor chain and otherwise hide ours. -->
         <completion.contributor
                 language="CFML"
+                order="first"
                 implementationClass="it.emanuelemelini.cfmlextracompletion.CfmlExtraCompletionContributor"/>
         <!-- Stops the CFML "unresolved reference" inspection from underlining symbols we know exist. -->
         <lang.inspectionSuppressor
@@ -81,8 +87,11 @@
                 language="CFML"
                 implementationClass="it.emanuelemelini.cfmlextracompletion.CfmlDocumentationProvider"/>
 
-        <!-- Ctrl/Cmd+Click / Go To Declaration for our variables and functions. -->
+        <!-- Ctrl/Cmd+Click / Go To Declaration for our variables and functions.
+             order=first so we are consulted before the bundled CFML/SQL handlers, which otherwise claim
+             the reference (or resolve it into the injected SQL) and hide our target. -->
         <gotoDeclarationHandler
+                order="first"
                 implementation="it.emanuelemelini.cfmlextracompletion.CfmlGotoDeclarationHandler"/>
 
         <!-- No groupId => the page appears under Settings > Other Settings. -->
@@ -91,4 +100,14 @@
                 id="it.emanuelemelini.cfmlextracompletion.settings.CfmlExtraConfigurable"
                 displayName="Cfml Extra Completion"/>
     </extensions>
+
+    <actions>
+        <!-- Diagnostics for the SELECT * / data source integration (Tools menu). -->
+        <action id="it.emanuelemelini.cfmlextracompletion.DiagnoseQuerySchema"
+                class="it.emanuelemelini.cfmlextracompletion.CfmlDbDiagnosticAction"
+                text="CFML Extra Completion: Diagnose Query Schema"
+                description="Probe the attached data sources used to expand SELECT * in cfquery blocks">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

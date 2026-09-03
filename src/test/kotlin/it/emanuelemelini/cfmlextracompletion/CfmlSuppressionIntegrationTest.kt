@@ -50,6 +50,19 @@ class CfmlSuppressionIntegrationTest : BasePlatformTestCase() {
         )
     }
 
+    fun testQueryColumnInsideCfoutputIsNotFlagged() {
+        myFixture.enableInspections(CfmlReferenceInspection())
+        myFixture.configureByText(
+            "page.cfm",
+            """
+            <cfset report = queryNew("year,total")>
+            <cfoutput query="report">#year# #total#</cfoutput>
+            """.trimIndent(),
+        )
+        assertTrue("query columns inside cfoutput query must not be flagged; got ${weakWarningTexts()}",
+            weakWarningTexts().none { it == "year" || it == "total" })
+    }
+
     fun testApplicationScopeSymbolIsNotFlagged() {
         myFixture.addFileToProject(
             "Application.cfc",

@@ -42,6 +42,71 @@ class CfmlGotoDeclarationTest : BasePlatformTestCase() {
         assertEquals(app.text.indexOf("doThing"), target.textRange.startOffset)
     }
 
+    fun testGotoQueryColumn() {
+        myFixture.configureByText(
+            "page.cfm",
+            "<cfquery name=\"users\">SELECT id, userName FROM t</cfquery>\n" +
+                "<cfoutput query=\"users\">#user<caret>Name#</cfoutput>",
+        )
+        val target = targetAtCaret()!!.single()
+        val defEnd = myFixture.file.text.indexOf("</cfquery>")
+        assertTrue("column go-to should land in the query definition (before </cfquery>), got ${target.textRange}",
+            target.textRange.startOffset < defEnd)
+    }
+
+    fun testGotoQueryName() {
+        myFixture.configureByText(
+            "page.cfm",
+            "<cfquery name=\"users\">SELECT id FROM t</cfquery>\n" +
+                "<cfoutput query=\"us<caret>ers\"></cfoutput>",
+        )
+        val target = targetAtCaret()!!.single()
+        val defEnd = myFixture.file.text.indexOf("</cfquery>")
+        assertTrue("query-name go-to should land in the definition, got ${target.textRange}",
+            target.textRange.startOffset < defEnd)
+    }
+
+    fun testGotoQualifiedQueryColumnLikeRealFile() {
+        // Mirrors the real sample: a doc comment above, qualified #users.IDutente# reference.
+        myFixture.configureByText(
+            "queryDemo.cfm",
+            "<!--- a comment mentioning <cfquery> and queryNew --->\n" +
+                "<cfquery name=\"users\">\n    SELECT IDutente, userid FROM utenti\n</cfquery>\n" +
+                "<cfoutput query=\"users\">\n    #users.IDut<caret>ente#\n</cfoutput>",
+        )
+        val targets = targetAtCaret()
+        assertNotNull("qualified query column should have a go-to target", targets)
+        val off = targets!!.single().textRange.startOffset
+        val expected = myFixture.file.text.indexOf("IDutente")
+        assertEquals("should land on IDutente inside the cfquery", expected, off)
+    }
+
+    fun testGotoBareQueryColumnWithCommentAbove() {
+        myFixture.configureByText(
+            "queryDemo.cfm",
+            "<!--- comment with <cfquery> text --->\n" +
+                "<cfquery name=\"users\">\n    SELECT IDutente, userid FROM utenti\n</cfquery>\n" +
+                "<cfoutput query=\"users\">\n    #IDut<caret>ente#\n</cfoutput>",
+        )
+        val targets = targetAtCaret()
+        assertNotNull("bare query column should have a go-to target", targets)
+        val off = targets!!.single().textRange.startOffset
+        assertEquals("should land on IDutente inside the cfquery",
+            myFixture.file.text.indexOf("IDutente"), off)
+    }
+
+    fun testGotoQualifiedQueryColumnOutsideLoop() {
+        myFixture.configureByText(
+            "page.cfm",
+            "<cfquery name=\"users\">SELECT IDutente, userid FROM utenti</cfquery>\n" +
+                "<cfset test = users.IDut<caret>ente>",
+        )
+        val targets = targetAtCaret()
+        assertNotNull("q.col outside a loop should navigate", targets)
+        assertEquals("should land on IDutente inside the cfquery",
+            myFixture.file.text.indexOf("IDutente"), targets!!.single().textRange.startOffset)
+    }
+
     fun testUnknownIdentifierHasNoTarget() {
         myFixture.addFileToProject("Application.cfm", """<cfset knownVar = 1>""")
         myFixture.configureByText("page.cfm", "<cfoutput>#totallyUnk<caret>nown#</cfoutput>")

@@ -38,10 +38,30 @@ class CfmlDocumentationProvider : DocumentationProviderEx() {
         targetOffset: Int,
     ): PsiElement? {
         if (contextElement == null || !CfmlProjectSymbols.isCfmlFile(file)) return null
-        val name = contextElement.text
-        if (name.isNullOrEmpty() || !name.all { it.isLetterOrDigit() || it == '_' }) return null
-        val fn = findFunction(file, name) ?: return null
-        return CfmlDocElement(contextElement, fn.name, render(fn))
+        val name = trailingIdentifier(contextElement.text) ?: return null
+
+        findFunction(file, name)?.let { return CfmlDocElement(contextElement, it.name, render(it)) }
+        queryDoc(editor, name, targetOffset)?.let { return CfmlDocElement(contextElement, name, it) }
+        return null
+    }
+
+    /** Doc for a query name (its column list) or a query column (its owning query), or null. */
+    private fun queryDoc(editor: Editor, name: String, offset: Int): String? {
+        val project = editor.project ?: return null
+        val docText = editor.document.immutableCharSequence
+        val defs = CfmlQueryScopes.queryDefs(docText.toString())
+        if (defs.isEmpty()) return null
+
+        defs.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let { def ->
+            val cols = CfmlQueryResolver.resolveColumns(project, def)
+                .joinToString(", ") { it.name }.ifEmpty { "unknown (SELECT * or dynamic)" }
+            return "<b>query ${escape(def.name)}</b><br/>columns: ${escape(cols)}"
+        }
+        val active = CfmlQueryResolver.activeQuery(project, docText, offset) ?: return null
+        if (active.columns.any { it.name.equals(name, ignoreCase = true) }) {
+            return "<b>${escape(name)}</b><br/>column of query <b>${escape(active.name)}</b>"
+        }
+        return null
     }
 
     override fun getDocumentationElementForLookupItem(
@@ -79,6 +99,18 @@ class CfmlDocumentationProvider : DocumentationProviderEx() {
 
     private fun escape(text: String): String =
         text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    /** Trailing identifier of a possibly-qualified reference, e.g. "application.dsn" -> "dsn". */
+    private fun trailingIdentifier(text: String?): String? {
+        if (text.isNullOrEmpty()) return null
+        fun ident(c: Char) = c.isLetterOrDigit() || c == '_'
+        var end = text.length
+        while (end > 0 && !ident(text[end - 1])) end--
+        if (end == 0) return null
+        var start = end
+        while (start > 0 && ident(text[start - 1])) start--
+        return text.substring(start, end)
+    }
 
     /**
      * Synthetic element carrying pre-rendered doc HTML for our contributed functions. It must be

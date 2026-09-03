@@ -159,6 +159,86 @@ class CfmlCompletionIntegrationTest : BasePlatformTestCase() {
             strings.containsAll(listOf("session.userId", "session.cart")))
     }
 
+    fun testQueryColumnsCompleteInsideCfoutput() {
+        myFixture.configureByText(
+            "page.cfm",
+            """
+            <cfquery name="q">SELECT id, userName FROM users</cfquery>
+            <cfoutput query="q">#<caret>#</cfoutput>
+            """.trimIndent(),
+        )
+        myFixture.completeBasic()
+        val ours = (myFixture.lookupElements ?: emptyArray()).filter { it.`object` is Symbol }.map { it.lookupString }
+        assertTrue("expected bare query columns, got $ours", ours.containsAll(listOf("id", "userName")))
+    }
+
+    fun testQueryColumnsLikeSampleFile() {
+        // Mirrors sample/queries/queryDemo.cfm: multi-line cfquery + queryNew in the SAME file.
+        myFixture.configureByText(
+            "queryDemo.cfm",
+            """
+            <cfquery name="users">
+                SELECT id, userName, email AS mail
+                FROM users_table
+            </cfquery>
+
+            <cfoutput query="users">
+                #<caret>#
+            </cfoutput>
+
+            <cfset report = queryNew("year,total")>
+            <cfloop query="report"><cfoutput>#year#</cfoutput></cfloop>
+            """.trimIndent(),
+        )
+        myFixture.completeBasic()
+        val ours = (myFixture.lookupElements ?: emptyArray()).filter { it.`object` is Symbol }.map { it.lookupString }
+        assertTrue("cfquery columns should complete inside cfoutput query, got $ours",
+            ours.containsAll(listOf("id", "userName", "mail")))
+    }
+
+    fun testQueryNamesCompleteInQueryAttribute() {
+        myFixture.configureByText(
+            "page.cfm",
+            """
+            <cfquery name="users">SELECT id FROM t</cfquery>
+            <cfset report = queryNew("year")>
+            <cfoutput query="<caret>"></cfoutput>
+            """.trimIndent(),
+        )
+        myFixture.completeBasic()
+        val strings = myFixture.lookupElementStrings ?: emptyList()
+        assertTrue("query names should complete in a query=\"\" attribute, got $strings",
+            strings.containsAll(listOf("users", "report")))
+    }
+
+    fun testQualifiedQueryColumnsCompleteOutsideLoop() {
+        // ColdFusion allows q.col anywhere (reads the first row) - not only inside <cfoutput query="q">.
+        myFixture.configureByText(
+            "page.cfm",
+            """
+            <cfquery name="users">SELECT IDutente, userid FROM utenti</cfquery>
+            <cfset test = users.<caret>>
+            """.trimIndent(),
+        )
+        myFixture.completeBasic()
+        val ours = (myFixture.lookupElements ?: emptyArray()).filter { it.`object` is Symbol }.map { it.lookupString }
+        assertTrue("q.col should complete outside a cfoutput loop, got $ours",
+            ours.containsAll(listOf("users.IDutente", "users.userid")))
+    }
+
+    fun testQueryColumnsCompleteQualified() {
+        myFixture.configureByText(
+            "page.cfm",
+            """
+            <cfset q = queryNew("id,total")>
+            <cfoutput query="q">#q.<caret>#</cfoutput>
+            """.trimIndent(),
+        )
+        myFixture.completeBasic()
+        val ours = (myFixture.lookupElements ?: emptyArray()).filter { it.`object` is Symbol }.map { it.lookupString }
+        assertTrue("expected q.<column> completions, got $ours", ours.containsAll(listOf("q.id", "q.total")))
+    }
+
     fun testFunctionCompletionShowsSignature() {
         myFixture.addFileToProject(
             "Application.cfm",

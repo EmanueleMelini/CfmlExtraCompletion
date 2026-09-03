@@ -18,6 +18,12 @@ They complete unscoped (and after `variables.`) or after the matching scope pref
 `session.`, `request.`, `this.` — shown **qualified and prefix-highlighted** to match the built-in, and
 surfaced while you type the scope name (before the dot).
 
+Inside a `<cfoutput query="q">` / `<cfloop query="q">` block, the **query's columns** also complete
+(unqualified and as `q.column`) when `q` is built in the same file by a `<cfquery>` with an explicit
+`SELECT` list or by `queryNew("col1,col2,…")`. If a **data source is attached**, `SELECT *` / `alias.*`
+(across `FROM`/`JOIN` tables) expand to the real table columns from the schema; without one they yield
+nothing (silent fallback). Query names also complete inside the `query="…"` attribute.
+
 Beyond completion, for these same symbols:
 
 - **Parameter info** — function signatures in the completion popup, plus the argument hint (auto after `(`
@@ -40,7 +46,7 @@ offered twice.
 ## Build
 
 ```bash
-./gradlew buildPlugin      # -> build/distributions/cfmlextracompletion-0.1.2.zip
+./gradlew buildPlugin      # -> build/distributions/cfmlextracompletion-1.0.0.zip
 ./gradlew test             # runs the symbol-extractor unit tests
 ./gradlew verifyPlugin     # checks API compatibility against 2026.2
 ```
@@ -49,7 +55,7 @@ offered twice.
 
 1. Build the ZIP (above).
 2. In IntelliJ: **Settings ▸ Plugins ▸ ⚙ ▸ Install Plugin from Disk…** and pick
-   `build/distributions/cfmlextracompletion-0.1.2.zip`.
+   `build/distributions/cfmlextracompletion-1.0.0.zip`.
 3. Restart the IDE.
 
 ## Try it
@@ -64,6 +70,10 @@ Open the `sample/` folder as a project in the sandbox and follow the inline hint
   `cfinclude`d symbols (`headerVar`, `renderNav`, `footerVar` via a 2nd-level include; a deliberate
   include cycle exercises the guard).
 - `sample/appcfc/dashboard.cfm` — type `application.` and `this.` to see `Application.cfc` symbols.
+- `sample/scopesAndDocs.cfm` — `application.` / `session.` / `request.` completion, function parameter
+  info, Quick Doc (Ctrl+Q), and Ctrl/Cmd+Click go-to on `Application.cfm` functions.
+- `sample/queries/queryDemo.cfm` — query-column completion inside `<cfoutput query>` / `<cfloop query>`
+  for a `<cfquery>` SELECT list and a `queryNew(...)`.
 - `sample/mappings/usesMapping.cfm` — demonstrates the **this.mappings** option: with it off the
   `/lib/...` include is unresolved; with it on, `libVersion` / `slugify` complete.
 - `sample/nested/admin/adminPage.cfm` — demonstrates the **ancestor merge** option: `adminSetting`
@@ -92,26 +102,21 @@ default). Toggling them takes effect immediately — no restart:
 
 ## Changelog
 
-### 0.1.2
-- **Ctrl/Cmd+Click (Go To Declaration)** on contributed variables and functions jumps to their
-  declaration in `Application.cfm` / `Application.cfc` / an included file. Also navigates `cfinclude`
-  paths that resolve through a `this.mappings` alias.
-- **`session.*` and `request.*`** variables (set in `Application.cfm`/`.cfc`/included files) now complete
-  like `application.*`.
-- Contributed functions now show their parameter signature in completion (e.g.
-  `formatMoney(amount : numeric, [symbol : string])`) and provide a parameter-info hint (Ctrl+P, and
-  automatically while typing arguments) — matching how the built-in CFML functions behave.
-- Function documentation — a preceding comment (`<!--- --->` or a JS-doc block) or the `hint` attribute —
-  is shown in the completion doc pane and via Quick Documentation (Ctrl+Q) on the function name. (This goes
-  beyond the built-in CFML completion, which shows no docs for these functions.)
-- `application.*` variables assigned directly in `Application.cfm` (e.g. `<cfset application.test = 1>`) now
-  appear in `application.` completion.
-- Scope members now match the built-in completion look: shown qualified (`application.name`), with the
-  typed text prefix-highlighted, and surfaced while typing the scope name (before the dot is typed).
-- No more duplicate entries: symbols the built-in already completes (same-file symbols, standard
-  `Application.cfc` settings) are no longer offered a second time.
-
-### 0.1.1
-- Initial release: project-wide completion from the nearest `Application.cfm`, `Application.cfc`
-  (`application.` / `this.` scope), and the `cfinclude` graph; suppression of the CFML unresolved-reference
-  warning for these symbols; opt-in `this.mappings` resolution and ancestor-Application merge.
+### 1.0.0
+- Project-wide completion the built-in CFML plugin misses: symbols from the nearest `Application.cfm`,
+  `Application.cfc` (`application.` / `session.` / `request.` / `this.` scopes), and the `cfinclude` graph —
+  shown qualified and prefix-highlighted, and surfaced while typing the scope name.
+- **Query support** — inside `<cfoutput query="q">` / `<cfloop query="q">`, the query's columns complete
+  (unqualified and as `q.column`) from a same-file `<cfquery>` `SELECT` list or `queryNew("...")`; with a
+  data source attached, `SELECT *` / `alias.*` expand to the real schema columns. `q.column` also works
+  anywhere outside a loop (ColdFusion's first-row dot notation). Query names complete inside the
+  `query="..."` attribute.
+- **Tools ▸ "CFML Extra Completion: Diagnose Query Schema"** — reports the attached data sources and the
+  columns resolved for a table, for when `SELECT *` expansion doesn't behave as expected.
+- **Parameter info** (function signature + argument hint) and **documentation** (a preceding comment or the
+  `hint` attribute) for these functions; Quick Doc also describes query names and columns.
+- **Ctrl/Cmd+Click (Go To Declaration)** for contributed variables and functions, query names and columns
+  (jumps into the `<cfquery>`/`queryNew`), and `cfinclude` paths that resolve through a `this.mappings` alias.
+- Suppresses false "unresolved" warnings for symbols we know exist (genuinely unknown ones stay flagged).
+- Opt-in (Settings > Other Settings > Cfml Extra Completion): resolve `this.mappings` for `cfinclude`, and
+  merge `Application.cfm` / `Application.cfc` from all ancestor directories.
