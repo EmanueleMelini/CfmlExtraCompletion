@@ -40,22 +40,23 @@ offered twice.
 
 ## Requirements
 
-- IntelliJ IDEA Ultimate **2026.2** (build 262.x).
+- IntelliJ IDEA Ultimate **2026.2.x** or **2026.3.x** (builds 262.x / 263.x).
 - The **CFML** plugin (Marketplace id `CFML Support`) installed and enabled — this plugin depends on it.
+  Use the CFML build matching your IDE branch (e.g. `262.8665.176` for 2026.2.x, `263.7307.112` for 2026.3.x).
 
 ## Build
 
 ```bash
-./gradlew buildPlugin      # -> build/distributions/cfmlextracompletion-1.0.0.zip
+./gradlew buildPlugin      # -> build/distributions/cfmlextracompletion-1.0.1.zip
 ./gradlew test             # runs the symbol-extractor unit tests
-./gradlew verifyPlugin     # checks API compatibility against 2026.2
+./gradlew verifyPlugin     # checks API compatibility against every build in pluginVerifyIdes
 ```
 
 ## Install (personal use)
 
 1. Build the ZIP (above).
 2. In IntelliJ: **Settings ▸ Plugins ▸ ⚙ ▸ Install Plugin from Disk…** and pick
-   `build/distributions/cfmlextracompletion-1.0.0.zip`.
+   `build/distributions/cfmlextracompletion-1.0.1.zip`.
 3. Restart the IDE.
 
 ## Try it
@@ -101,6 +102,10 @@ default). Toggling them takes effect immediately — no restart:
   function's own doc — a built-in behavior we don't override. Docs work everywhere the function is used.
 
 ## Changelog
+
+### 1.0.1
+- Compatibility with **IntelliJ IDEA 2026.3** (build 263). The supported range is now 2026.2.x and 2026.3.x,
+  verified against 2026.2, 2026.2.4 and 2026.3. No functional changes.
 
 ### 1.0.0
 - Project-wide completion the built-in CFML plugin misses: symbols from the nearest `Application.cfm`,

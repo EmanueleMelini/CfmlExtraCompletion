@@ -100,10 +100,11 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-            // Compile against the OLDEST supported build (platformVersion) but verify across the whole
-            // supported range, including the newest 2026.2.x users actually run.
-            create(IntelliJPlatformType.IntellijIdea, providers.gradleProperty("platformVersion").get())
-            create(IntelliJPlatformType.IntellijIdea, providers.gradleProperty("platformVersionLatest").get())
+            // We compile against the OLDEST supported build (platformVersion) but must run on every build in
+            // the since/until range, so verify each branch's newest release too (pluginVerifyIdes).
+            providers.gradleProperty("pluginVerifyIdes").get()
+                .split(",").map(String::trim).filter(String::isNotEmpty)
+                .forEach { create(IntelliJPlatformType.IntellijIdea, it) }
         }
     }
 }
